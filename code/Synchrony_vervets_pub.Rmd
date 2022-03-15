@@ -1,0 +1,563 @@
+---
+title: "Synchrony in vervets"
+output: html_notebook
+---
+
+
+## Introduction
+
+This is the code used in the publication "Using synchrony to identify drivers of social network dynamics."
+
+Outline:
+1. Get the network strength data
+1.2. Fit a multivariate model (accounting for shared events/interactions)
+1.3. Fit a multivariate model (accounting for shared events/interactions + Season)
+1.4. Fit a multivariate model (accounting for shared events/interactions + Season + NDVI)
+2. Get the network modularity data
+2.2. Fit a multivariate model (accounting for shared events/interactions)
+2.3. Fit a multivariate model (accounting for shared events/interactions + Season)
+2.4. Fit a multivariate model (accounting for shared events/interactions + Season + NDVI)
+3. Generate plots and tables
+
+
+load libraries
+```{r}
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+#devtools::install_github("tbonne/netTS")
+library(netTS)
+library(igraph)
+library(rEDM)
+library(brms)
+```
+
+## 1. Get the strength data
+
+```{r}
+#get the strength data
+str.tot.ndvi.ite <- read.csv("network_strength_env.csv")
+```
+
+### 1.2 Strength base model
+
+This model accounts for inflation of synchrony due to sampling effort, demographics, number of ITEs, and number of males.
+
+```{r base model}
+
+#scale variables
+str.tot.ndvi.ite$size_PTs <- as.vector(str.tot.ndvi.ite$size_PT)
+str.tot.ndvi.ite$size_RBMs <- as.vector(str.tot.ndvi.ite$size_RBM)
+str.tot.ndvi.ite$size_RSTs <- as.vector(str.tot.ndvi.ite$size_RST)
+
+#build the model formulas
+bf_pt <- bf(pts ~ pt.samp.s + ite_pt_rst.s+ite_pt_rbm.s+males_PT.s+ size_PTs+ s(rowID, bs="gp") ) + student()
+bf_rbm <- bf(rbms ~ rbm.samp.s+ ite_rbm_rst.s+ite_pt_rbm.s + males_RBM.s+size_RBMs+ s(rowID, bs="gp"))+ student()
+bf_rst <- bf(rsts ~ rst.samp.s+ite_rbm_rst.s+ite_pt_rst.s+ males_RST.s+size_RSTs+ s(rowID, bs="gp"))+ student()
+
+#fit the model
+fitgp.synch.samp.pop.ite.males <- brm(bf_pt+bf_rbm+bf_rst+ set_rescor(TRUE),
+                       data = str.tot.ndvi.ite, iter=2000, chains=4, cores=4,control = list(adapt_delta = 0.99, max_treedepth=12),
+                       prior = prior("normal(0,1)", class="b",resp="pts") +
+                         prior("normal(0,1)", class="b",resp="rbms")+
+                         prior("normal(0,1)", class="b",resp="rsts")+
+                       prior("normal(0,1)", class="Intercept",resp="pts") +
+                         prior("normal(0,1)", class="Intercept",resp="rbms")+
+                         prior("normal(0,1)", class="Intercept",resp="rsts")
+                       )
+
+#take a look
+summary(fitgp.synch.samp.pop.ite.males)
+```
+
+
+### 1.2 Strength base model + Season
+
+run the seasonal model
+```{r strength based model and season}
+
+#build the model formulas
+bf_pt <- bf(pts ~ pt.samp.s + size_PTs + s(yday.s,bs="cc")+ ite_pt_rst.s+ite_pt_rbm.s+males_PT.s+ s(rowID, bs="gp") ) + student() #gaussian() s(rowID, bs="gp")
+bf_rbm <- bf(rbms ~ rbm.samp.s + size_RBMs + s(yday.s,bs="cc")+ ite_rbm_rst.s+ite_pt_rbm.s + males_RBM.s+ s(rowID, bs="gp"))+ student() # gaussian()
+bf_rst <- bf(rsts ~ rst.samp.s + size_RSTs + s(yday.s,bs="cc")+ ite_rbm_rst.s+ite_pt_rst.s + males_RST.s+ s(rowID, bs="gp"))+ student() # gaussian()
+
+#fit the model
+fitgp.synch.samp.pop.ite.males.season <- brm(bf_pt+bf_rbm+bf_rst+ set_rescor(TRUE),
+                       data = str.tot.ndvi.ite, iter=2000, chains=4, cores=4,control = list(adapt_delta = 0.99, max_treedepth=12),
+                       prior = prior("normal(0,1)", class="b",resp="pts") +
+                         prior("normal(0,1)", class="b",resp="rbms")+
+                         prior("normal(0,1)", class="b",resp="rsts")+
+                       prior("normal(0,1)", class="Intercept",resp="pts") +
+                         prior("normal(0,1)", class="Intercept",resp="rbms")+
+                         prior("normal(0,1)", class="Intercept",resp="rsts")
+                       )
+
+#take a look
+summary(fitgp.synch.samp.pop.ite.males.season)
+```
+
+## run the Strength base + seasons + ndvi
+
+run the ndvi model
+```{r strength based model, season, and NDVI}
+
+#build the model formulas
+bf_pt <- bf(pts ~ pt.samp.s + size_PTs+ ite_pt_rst.s+ite_pt_rbm.s+males_PT.s + s(yday.s,bs="cc")+ ndvi.s+ s(rowID, bs="gp")) + student() 
+bf_rbm <- bf(rbms ~ rbm.samp.s+ size_RBMs+ ite_rbm_rst.s+ite_pt_rbm.s + males_RBM.s+ s(yday.s,bs="cc")+ ndvi.s+ s(rowID, bs="gp"))+ student() 
+bf_rst <- bf(rsts ~ rst.samp.s+ size_RSTs+ ite_rbm_rst.s+ite_pt_rst.s + males_RST.s+ s(yday.s,bs="cc")+ ndvi.s+ s(rowID, bs="gp"))+ student() 
+
+#fit the model
+fitgp.synch.samp.pop.ite.males.season.ndvi <- brm(bf_pt+bf_rbm+bf_rst+ set_rescor(TRUE),
+                       data = str.tot.ndvi.ite, iter=2000, chains=4, cores=4,control = list(adapt_delta = 0.99, max_treedepth = 12),
+                       prior = prior("normal(0,1)", class="b",resp="pts") +
+                         prior("normal(0,1)", class="b",resp="rbms")+
+                         prior("normal(0,1)", class="b",resp="rsts")+
+                       prior("normal(0,1)", class="Intercept",resp="pts") +
+                         prior("normal(0,1)", class="Intercept",resp="rbms")+
+                         prior("normal(0,1)", class="Intercept",resp="rsts")
+                       )
+
+#take a look
+summary(fitgp.synch.samp.pop.ite.males.season.ndvi)
+```
+
+
+# 2) run model to estimate the synchrony between the groups - Modularity
+
+Get the data
+```{r input data}
+mod.tot.ite.ndvi<-read.csv("network_modularity_env.csv")
+```
+
+### 2.1 Modularity base model
+
+```{r modularity base model}
+
+#build the model functions
+bf_pt <- bf(pts ~ pt.samp.s +size_PT.s+ males_PT.s + ite_pt_rbm.s + ite_pt_rst.s + s(rowID, bs="gp") ) + student()
+bf_rbm <- bf(rbms ~ rbm.samp.s +size_RBM.s+ males_RBM.s + ite_pt_rbm.s + ite_rbm_rst.s + s(rowID, bs="gp"))+ student()
+bf_rst <- bf(rsts ~ rst.samp.s+size_RST.s+ males_RST.s + ite_pt_rst.s + ite_rbm_rst.s + s(rowID, bs="gp"))+ student()
+
+#fit the model
+fit.synch.mod.samp.pop.males.ite <- brm(bf_pt+bf_rbm+bf_rst+ set_rescor(TRUE),
+                       data = mod.tot.ite.ndvi, iter=2000, chains=4, cores=4,control = list(adapt_delta = 0.95),
+                       prior = prior("normal(0,1)", class="b",resp="pts") +
+                         prior("normal(0,1)", class="b",resp="rbms")+
+                         prior("normal(0,1)", class="b",resp="rsts")+
+                       prior("normal(0,1)", class="Intercept",resp="pts") +
+                         prior("normal(0,1)", class="Intercept",resp="rbms")+
+                         prior("normal(0,1)", class="Intercept",resp="rsts")
+                       )
+
+#take a look
+summary(fit.synch.mod.samp.pop.males.ite)
+```
+
+### 2.3 Modularity base model + season
+
+```{r Modularity season model}
+
+
+#build model formulas
+bf_pt <- bf(pts ~ pt.samp.s +size_PT.s+ males_PT.s + ite_pt_rbm.s + ite_pt_rst.s + s(yday.s,bs="cc")+ s(rowID, bs="gp") ) + student()
+bf_rbm <- bf(rbms ~ rbm.samp.s +size_RBM.s+ males_RBM.s + ite_pt_rbm.s + ite_rbm_rst.s + s(yday.s,bs="cc")+ s(rowID, bs="gp"))+ student()
+bf_rst <- bf(rsts ~ rst.samp.s+size_RST.s+ males_RST.s + ite_pt_rst.s + ite_rbm_rst.s + s(yday.s,bs="cc")+ s(rowID, bs="gp"))+ student()
+
+#fit the model
+fit.synch.mod.samp.pop.males.ite.season <- brm(bf_pt+bf_rbm+bf_rst+ set_rescor(TRUE),
+                       data = mod.tot.ite.ndvi, iter=2000, chains=4, cores=4,control = list(adapt_delta = 0.95),
+                       prior = prior("normal(0,1)", class="b",resp="pts") +
+                         prior("normal(0,1)", class="b",resp="rbms")+
+                         prior("normal(0,1)", class="b",resp="rsts")+
+                       prior("normal(0,1)", class="Intercept",resp="pts") +
+                         prior("normal(0,1)", class="Intercept",resp="rbms")+
+                         prior("normal(0,1)", class="Intercept",resp="rsts")
+                       )
+
+#take a look
+summary(fit.synch.mod.samp.pop.males.ite.season)
+```
+
+
+### 2.3 Modularity base model + season + ndvi
+
+run the ndvi model
+```{r modularity based season ndvi}
+
+#build the model formulas
+bf_pt <- bf(pts ~ pt.samp.s +size_PT.s+ males_PT.s + ite_pt_rbm.s + ite_pt_rst.s + s(yday.s,bs="cc")+ s(rowID, bs="gp")+ ndvi.s) + student()
+bf_rbm <- bf(rbms ~ rbm.samp.s +size_RBM.s+ males_RBM.s + ite_pt_rbm.s + ite_rbm_rst.s + s(yday.s,bs="cc")+ ndvi.s+ s(rowID, bs="gp"))+ student()
+bf_rst <- bf(rsts ~ rst.samp.s+size_RST.s+ males_RST.s + ite_pt_rst.s + ite_rbm_rst.s + s(yday.s,bs="cc")+ ndvi.s+ s(rowID, bs="gp"))+ student()
+
+#fit the model
+fit.synch.mod.samp.pop.males.ite.season.ndvi <- brm(bf_pt+bf_rbm+bf_rst+ set_rescor(TRUE),
+                       data = mod.tot.ite.ndvi, iter=2000, chains=4, cores=4,control = list(adapt_delta = 0.95),
+                       prior = prior("normal(0,1)", class="b",resp="pts") +
+                         prior("normal(0,1)", class="b",resp="rbms")+
+                         prior("normal(0,1)", class="b",resp="rsts")+
+                       prior("normal(0,1)", class="Intercept",resp="pts") +
+                         prior("normal(0,1)", class="Intercept",resp="rbms")+
+                         prior("normal(0,1)", class="Intercept",resp="rsts")
+                       )
+
+#take a look
+summary(fit.synch.mod.samp.pop.males.ite.season.ndvi)
+```
+
+
+## 3. Plots and tables for the MS
+
+### 3.1 Plot of the change in synchrony
+
+Make a desity ridge plot
+```{r synchrony in modularity}
+
+##### basic
+post.groom<- as.data.frame(fit.synch.mod.samp.pop.males.ite)
+
+df.cor <- data.frame(cor_pt_rbm = post.groom$rescor__pts__rbms,
+                     cor_pt_rst = post.groom$rescor__pts__rsts,
+                     cor_rbm_rst = post.groom$rescor__rbms__rsts
+)
+
+df.cor$model <- "Base"
+
+
+#### samp_size_ite_males_season
+post.groom<- as.data.frame(fit.synch.mod.samp.pop.males.ite.season)
+
+df.cor.temp <- data.frame(cor_pt_rbm = post.groom$rescor__pts__rbms,
+                     cor_pt_rst = post.groom$rescor__pts__rsts,
+                     cor_rbm_rst = post.groom$rescor__rbms__rsts
+)
+
+df.cor.temp$model <- "+ Season"
+
+df.cor <- bind_rows(df.cor, df.cor.temp)
+
+###full model
+post.groom<- as.data.frame(fit.synch.mod.samp.pop.males.ite.season.ndvi)
+
+df.cor.temp <- data.frame(cor_pt_rbm = post.groom$rescor__pts__rbms,
+                     cor_pt_rst = post.groom$rescor__pts__rsts,
+                     cor_rbm_rst = post.groom$rescor__rbms__rsts
+)
+
+df.cor.temp$model <- "+ NDVI"
+
+df.cor <- bind_rows(df.cor, df.cor.temp)
+
+
+
+######plot
+library(tidyverse)
+#df.cor.melt.g <- df.cor %>% gather("troops","groom",-model)
+#ggplot(df.cor.melt.g, aes(x=troops, color=model,y=groom)) + geom_violin(aes(fill=model),alpha=0.3, color="black",draw_quantiles=c(0.025,0.5,0.975)) + geom_hline(yintercept = 0, linetype="dashed") + theme_classic()
+
+df.cor.melt.g <- df.cor %>% pivot_longer(!last_col())
+names(df.cor.melt.g) <- c("model","troops","value")
+
+library(ggridges)
+p.synch.groom.mod <- ggplot(df.cor.melt.g %>% filter(model=="+ NDVI" | model=="+ Season" | model=="Base") , aes(y=factor(model,level=c('+ NDVI','+ Season','Base'   ) ),color=model,x=value)) + geom_density_ridges(aes(fill=model),alpha=0.73, color="black",scale = 4,rel_min_height = 0.01) + geom_hline(yintercept = 0, linetype="dashed") + theme_classic()
+
+library("RColorBrewer")
+p.synch.groom.mod<-p.synch.groom.mod + xlim(-1,1) + geom_vline(xintercept = 0, linetype="dashed") + theme(text = element_text(size = 16)) + facet_grid(vars(troops))+ theme(axis.text.y = element_text(hjust = 0)) + labs(y='')
+
+p.synch.groom.mod
+
+```
+
+Make a desity ridge plot
+```{r synchrony in modularity}
+
+
+
+##### basic
+post.groom<- as.data.frame(fitgp.synch.samp.pop.ite.males)
+
+df.cor <- data.frame(cor_pt_rbm = post.groom$rescor__pts__rbms,
+                     cor_pt_rst = post.groom$rescor__pts__rsts,
+                     cor_rbm_rst = post.groom$rescor__rbms__rsts
+)
+
+df.cor$model <- "Base"
+
+
+#### samp_size_ite_males_season
+post.groom<- as.data.frame(fitgp.synch.samp.pop.ite.males.season)
+
+df.cor.temp <- data.frame(cor_pt_rbm = post.groom$rescor__pts__rbms,
+                     cor_pt_rst = post.groom$rescor__pts__rsts,
+                     cor_rbm_rst = post.groom$rescor__rbms__rsts
+)
+
+df.cor.temp$model <- "+ Season"
+
+df.cor <- bind_rows(df.cor, df.cor.temp)
+
+###full model
+post.groom<- as.data.frame(fitgp.synch.samp.pop.ite.males.season.ndvi)
+
+df.cor.temp <- data.frame(cor_pt_rbm = post.groom$rescor__pts__rbms,
+                     cor_pt_rst = post.groom$rescor__pts__rsts,
+                     cor_rbm_rst = post.groom$rescor__rbms__rsts
+)
+
+df.cor.temp$model <- "+ NDVI"
+
+df.cor <- bind_rows(df.cor, df.cor.temp)
+
+
+
+######plot
+library(tidyverse)
+#df.cor.melt.g <- df.cor %>% gather("troops","groom",-model)
+#ggplot(df.cor.melt.g, aes(x=troops, color=model,y=groom)) + geom_violin(aes(fill=model),alpha=0.3, color="black",draw_quantiles=c(0.025,0.5,0.975)) + geom_hline(yintercept = 0, linetype="dashed") + theme_classic()
+
+df.cor.melt.g <- df.cor %>% pivot_longer(!last_col())
+names(df.cor.melt.g) <- c("model","troops","value")
+
+library(ggridges)
+p.synch.groom <- ggplot(df.cor.melt.g %>% filter(model=="+ NDVI" | model=="+ Season" | model=="Base") , aes(y=factor(model,level=c('+ NDVI','+ Season','Base'   ) ),color=model,x=value)) + geom_density_ridges(aes(fill=model),alpha=0.73, color="black",scale = 4,rel_min_height = 0.01) + geom_hline(yintercept = 0, linetype="dashed") + theme_classic()
+
+library("RColorBrewer")
+p.synch.groom <- p.synch.groom + xlim(-1,1) + geom_vline(xintercept = 0, linetype="dashed") + theme(text = element_text(size = 16)) + facet_grid(vars(troops))+ theme(axis.text.y = element_text(hjust = 0)) + labs(y='')
+
+p.synch.groom
+```
+
+```{r}
+cowplot::plot_grid(
+  p.synch.groom + xlim(-1,1) + geom_vline(xintercept = 0, linetype="dashed"),
+  p.synch.groom.mod + xlim(-1,1),
+  nrow=1, labels = c("a)","b)") )
+```
+
+### 3.2 Plots of the group responses to environmental change
+
+Plot the response of strength to changes in NDVI
+```{r plot ndvi str}
+library(tidyverse)
+model_to_use <- fitgp.synch.samp.pop.ite.males.season.ndvi
+
+
+summary(str.tot.ndvi.ite$ndvi.s)
+
+df.pred <- data.frame(yday.s= -1, ndvi.s=seq(-1.80592, 2.31502, length.out=100), rowID=1, pt.samp.s =0, rbm.samp.s =0, rst.samp.s =0 ,ite_pt_rst.s=0,ite_pt_rbm.s=0,ite_rbm_rst.s=0, males_PT.s=0,males_RBM.s=0, males_RST.s=0, size_PTs=0, size_RBMs=0,size_RSTs=0)
+
+df.pred.pt<- as.data.frame(fitted(model_to_use,newdata = df.pred, resp = "pts", summary = F))
+df.pred.rbm<- as.data.frame(fitted(model_to_use,newdata = df.pred, resp = "rbms", summary = F))
+df.pred.rst<- as.data.frame(fitted(model_to_use,newdata = df.pred, resp = "rsts", summary = F))
+
+
+
+
+#back scale each prediction
+library(HDInterval)
+
+df.pred.pt<-(df.pred.pt*sd(str.tot.ndvi.ite$pt, na.rm = T)) + mean(str.tot.ndvi.ite$pt, na.rm = T)
+df.pred.pt.mean <- apply(df.pred.pt,2,mean)
+df.pred.pt.hdi <- apply(df.pred.pt,2,hdi)
+df.pred.pt.df <- data.frame(Estimate = (df.pred.pt.mean), lci = (df.pred.pt.hdi[1,]), uci = (df.pred.pt.hdi[2,]) )
+
+df.pred.rst<-(df.pred.rst*sd(str.tot.ndvi.ite$rst, na.rm = T)) + mean(str.tot.ndvi.ite$rst, na.rm = T)
+df.pred.rst.mean <- apply(df.pred.rst,2,mean)
+df.pred.rst.hdi <- apply(df.pred.rst,2,hdi)
+df.pred.rst.df <- data.frame(Estimate = (df.pred.rst.mean), lci = (df.pred.rst.hdi[1,]), uci = (df.pred.rst.hdi[2,]) )
+
+df.pred.rbm<-(df.pred.rbm*sd(str.tot.ndvi.ite$rbm, na.rm = T)) + mean(str.tot.ndvi.ite$rbm, na.rm = T)
+df.pred.rbm.mean <- apply(df.pred.rbm,2,mean)
+df.pred.rbm.hdi <- apply(df.pred.rbm,2,hdi)
+df.pred.rbm.df <- data.frame(Estimate = (df.pred.rbm.mean), lci = (df.pred.rbm.hdi[1,]), uci = (df.pred.rbm.hdi[2,]) )
+
+
+
+
+#bind to data used to make predictions
+df.pred.pt <- bind_cols(df.pred,df.pred.pt.df)
+df.pred.rbm <- bind_cols(df.pred,df.pred.rbm.df)
+df.pred.rst <- bind_cols(df.pred,df.pred.rst.df)
+
+#add column to name troop
+df.pred.pt$troop <- "pt"
+df.pred.rbm$troop<- "rbm"
+df.pred.rst$troop<- "rst"
+
+#bind them
+df.pred.all <-bind_rows(df.pred.pt,df.pred.rbm,df.pred.rst)
+
+#melt
+df.pred.melt <- df.pred.all %>% pivot_longer(cols=c(-troop,-yday.s,-ndvi.s,-rowID,-pt.samp.s,-rbm.samp.s,-rst.samp.s,-lci,-uci,-ite_pt_rst.s,-ite_pt_rbm.s,-ite_rbm_rst.s, -males_PT.s,-males_RBM.s, -males_RST.s, -size_PTs,-size_RSTs,-size_RBMs))
+
+#plot it 
+p.groom.ndvi<-ggplot(df.pred.melt, aes(x=ndvi.s, y=value, group=troop, ymin=lci, ymax=uci) ) + geom_ribbon(color=NA,aes(fill=troop),alpha=0.2)+ geom_line(aes(color=troop)) + theme_classic()
+p.groom.ndvi
+```
+
+Plot the response of strength to changes in day of year
+```{r plot seasonal str}
+
+model_to_use <- fitgp.synch.samp.pop.ite.males.season.ndvi
+
+summary(str.tot.ndvi.ite$yday.s)
+
+df.pred <- data.frame(yday.s= seq(-1.6329, 1.7659, length.out=100), ndvi.s=0, rowID=1, pt.samp.s =0, rbm.samp.s =0, rst.samp.s =0 ,ite_pt_rst.s=0,ite_pt_rbm.s=0,ite_rbm_rst.s=0, males_PT.s=0,males_RBM.s=0, males_RST.s=0, size_PTs=0, size_RBMs=0,size_RSTs=0)
+
+df.pred.pt<- as.data.frame(fitted(model_to_use,newdata = df.pred, resp = "pts",incl_autocor = F, summary=F))
+df.pred.rbm<- as.data.frame(fitted(model_to_use,newdata = df.pred, resp = "rbms",incl_autocor = F, summary=F))
+df.pred.rst<- as.data.frame(fitted(model_to_use,newdata = df.pred, resp = "rsts",incl_autocor = F, summary=F))
+
+
+#back scale each prediction
+library(HDInterval)
+
+df.pred.pt<-(df.pred.pt*sd(str.tot.ndvi.ite$pt, na.rm = T)) + mean(str.tot.ndvi.ite$pt, na.rm = T)
+df.pred.pt.mean <- apply(df.pred.pt,2,mean)
+df.pred.pt.hdi <- apply(df.pred.pt,2,hdi)
+df.pred.pt.df <- data.frame(Estimate = (df.pred.pt.mean), lci = (df.pred.pt.hdi[1,]), uci = (df.pred.pt.hdi[2,]) )
+
+df.pred.rst<-(df.pred.rst*sd(str.tot.ndvi.ite$rst, na.rm = T)) + mean(str.tot.ndvi.ite$rst, na.rm = T)
+df.pred.rst.mean <- apply(df.pred.rst,2,mean)
+df.pred.rst.hdi <- apply(df.pred.rst,2,hdi)
+df.pred.rst.df <- data.frame(Estimate = (df.pred.rst.mean), lci = (df.pred.rst.hdi[1,]), uci = (df.pred.rst.hdi[2,]) )
+
+df.pred.rbm<-(df.pred.rbm*sd(str.tot.ndvi.ite$rbm, na.rm = T)) + mean(str.tot.ndvi.ite$rbm, na.rm = T)
+df.pred.rbm.mean <- apply(df.pred.rbm,2,mean)
+df.pred.rbm.hdi <- apply(df.pred.rbm,2,hdi)
+df.pred.rbm.df <- data.frame(Estimate = (df.pred.rbm.mean), lci = (df.pred.rbm.hdi[1,]), uci = (df.pred.rbm.hdi[2,]) )
+
+
+#bind to data used to make predictions
+df.pred.pt <- bind_cols(df.pred,df.pred.pt.df)
+df.pred.rbm <- bind_cols(df.pred,df.pred.rbm.df)
+df.pred.rst <- bind_cols(df.pred,df.pred.rst.df)
+
+#add column to name troop
+df.pred.pt$troop <- "pt"
+df.pred.rbm$troop<- "rbm"
+df.pred.rst$troop<- "rst"
+
+#bind them
+df.pred.all <-bind_rows(df.pred.pt,df.pred.rbm,df.pred.rst)
+
+#melt
+df.pred.melt <- df.pred.all %>% pivot_longer(cols=c(-troop,-yday.s,-ndvi.s,-rowID,-pt.samp.s,-rbm.samp.s,-rst.samp.s,-lci,-uci,-ite_pt_rst.s,-ite_pt_rbm.s,-ite_rbm_rst.s, -males_PT.s,-males_RBM.s, -males_RST.s, -size_PTs,-size_RSTs,-size_RBMs))
+
+#plot it 
+p.groom.season<-ggplot(df.pred.melt, aes(x=yday.s, y=value, group=troop, ymin=lci, ymax=uci) ) + geom_ribbon(color=NA,aes(fill=troop),alpha=0.2)+ geom_line(aes(color=troop))  + theme_classic()
+
+p.groom.season
+```
+
+```{r plot ndvi modularity}
+summary(str.tot.ndvi.ite$ndvi.s)
+
+df.pred <- data.frame(yday.s= 0, ndvi.s=seq(-1.80592, 2.31502, length.out=100), rowID=1, pt.samp.s =0, rbm.samp.s =0, rst.samp.s =0, size_PT.s=0,size_RBM.s=0,size_RST.s=0,ite_pt_rbm.s=0,ite_pt_rst.s=0,ite_rbm_rst.s=0, males_PT.s=0,males_RBM.s=0,males_RST.s=0)
+
+df.pred.pt<- as.data.frame(fitted(fit.synch.mod.samp.pop.males.ite.season.ndvi,newdata = df.pred, resp = "pts",incl_autocor = F, summary = F))
+df.pred.rbm<- as.data.frame(fitted(fit.synch.mod.samp.pop.males.ite.season.ndvi,newdata = df.pred, resp = "rbms",incl_autocor = F, summary = F))
+df.pred.rst<- as.data.frame(fitted(fit.synch.mod.samp.pop.males.ite.season.ndvi,newdata = df.pred, resp = "rsts",incl_autocor = F, summary = F))
+
+
+#back scale each prediction
+library(HDInterval)
+
+df.pred.pt<-(df.pred.pt*sd(mod.tot.ite.ndvi$pt, na.rm = T)) + mean(mod.tot.ite.ndvi$pt, na.rm = T)
+df.pred.pt.mean <- apply(df.pred.pt,2,mean)
+df.pred.pt.hdi <- apply(df.pred.pt,2,hdi)
+df.pred.pt.df <- data.frame(Estimate = (df.pred.pt.mean), lci = (df.pred.pt.hdi[1,]), uci = (df.pred.pt.hdi[2,]) )
+
+df.pred.rst<-(df.pred.rst*sd(mod.tot.ite.ndvi$rst, na.rm = T)) + mean(mod.tot.ite.ndvi$rst, na.rm = T)
+df.pred.rst.mean <- apply(df.pred.rst,2,mean)
+df.pred.rst.hdi <- apply(df.pred.rst,2,hdi)
+df.pred.rst.df <- data.frame(Estimate = (df.pred.rst.mean), lci = (df.pred.rst.hdi[1,]), uci = (df.pred.rst.hdi[2,]) )
+
+df.pred.rbm<-(df.pred.rbm*sd(mod.tot.ite.ndvi$rbm, na.rm = T)) + mean(mod.tot.ite.ndvi$rbm, na.rm = T)
+df.pred.rbm.mean <- apply(df.pred.rbm,2,mean)
+df.pred.rbm.hdi <- apply(df.pred.rbm,2,hdi)
+df.pred.rbm.df <- data.frame(Estimate = (df.pred.rbm.mean), lci = (df.pred.rbm.hdi[1,]), uci = (df.pred.rbm.hdi[2,]) )
+
+#bind to data used to make predictions
+df.pred.pt <- bind_cols(df.pred,df.pred.pt.df)
+df.pred.rbm <- bind_cols(df.pred,df.pred.rbm.df)
+df.pred.rst <- bind_cols(df.pred,df.pred.rst.df)
+
+#add column to name troop
+df.pred.pt$troop <- "pt"
+df.pred.rbm$troop<- "rbm"
+df.pred.rst$troop<- "rst"
+
+#bind them
+df.pred.all <-bind_rows(df.pred.pt,df.pred.rbm,df.pred.rst)
+
+#melt
+df.pred.melt <- df.pred.all %>% pivot_longer(cols=c(-troop,-yday.s,-ndvi.s,-rowID,-pt.samp.s,-rbm.samp.s,-rst.samp.s,-lci,-uci, -size_PT.s,-size_RBM.s,-size_RST.s,-ite_pt_rbm.s,-ite_pt_rst.s,-ite_rbm_rst.s, -males_PT.s,-males_RBM.s,-males_RST.s))
+
+#plot it 
+p.mod.ndvi<-ggplot(df.pred.melt, aes(x=ndvi.s, y=value, group=troop, ymin=lci, ymax=uci) ) + geom_ribbon(color=NA,aes(fill=troop),alpha=0.2)+ geom_line(aes(color=troop)) + theme_classic()
+p.mod.ndvi
+```
+
+
+
+```{r plot seasonal modularity with backscale}
+summary(mod.tot.ite.ndvi$yday.s)
+
+df.pred <- data.frame(yday.s= seq(-1.6329, 1.7659, length.out=100), ndvi.s=0, rowID=1, pt.samp.s =0, rbm.samp.s =0, rst.samp.s =0, size_PT.s=0,size_RBM.s=0,size_RST.s=0,ite_pt_rbm.s=0,ite_pt_rst.s=0,ite_rbm_rst.s=0, males_PT.s=0,males_RBM.s=0,males_RST.s=0 )
+
+df.pred.pt<- as.data.frame(fitted(fit.synch.mod.samp.pop.males.ite.season.ndvi,newdata = df.pred, resp = "pts",incl_autocor = F, summary=FALSE))
+df.pred.rbm<- as.data.frame(fitted(fit.synch.mod.samp.pop.males.ite.season.ndvi,newdata = df.pred, resp = "rbms",incl_autocor = F, summary=FALSE))
+df.pred.rst<- as.data.frame(fitted(fit.synch.mod.samp.pop.males.ite.season.ndvi,newdata = df.pred, resp = "rsts",incl_autocor = F, summary=FALSE))
+
+#back scale each prediction
+library(HDInterval)
+
+df.pred.pt<-(df.pred.pt*sd(mod.tot.ite.ndvi$pt, na.rm = T)) + mean(mod.tot.ite.ndvi$pt, na.rm = T)
+df.pred.pt.mean <- apply(df.pred.pt,2,mean)
+df.pred.pt.hdi <- apply(df.pred.pt,2,hdi)
+df.pred.pt.df <- data.frame(Estimate = (df.pred.pt.mean), lci = (df.pred.pt.hdi[1,]), uci = (df.pred.pt.hdi[2,]) )
+
+df.pred.rst<-(df.pred.rst*sd(mod.tot.ite.ndvi$rst, na.rm = T)) + mean(mod.tot.ite.ndvi$rst, na.rm = T)
+df.pred.rst.mean <- apply(df.pred.rst,2,mean)
+df.pred.rst.hdi <- apply(df.pred.rst,2,hdi)
+df.pred.rst.df <- data.frame(Estimate = (df.pred.rst.mean), lci = (df.pred.rst.hdi[1,]), uci = (df.pred.rst.hdi[2,]) )
+
+df.pred.rbm<-(df.pred.rbm*sd(mod.tot.ite.ndvi$rbm, na.rm = T)) + mean(mod.tot.ite.ndvi$rbm, na.rm = T)
+df.pred.rbm.mean <- apply(df.pred.rbm,2,mean)
+df.pred.rbm.hdi <- apply(df.pred.rbm,2,hdi)
+df.pred.rbm.df <- data.frame(Estimate = (df.pred.rbm.mean), lci = (df.pred.rbm.hdi[1,]), uci = (df.pred.rbm.hdi[2,]) )
+
+#bind to data used to make predictions
+df.pred.pt <- bind_cols(df.pred,df.pred.pt.df)
+df.pred.rbm <- bind_cols(df.pred,df.pred.rbm.df)
+df.pred.rst <- bind_cols(df.pred,df.pred.rst.df)
+
+#add column to name troop
+df.pred.pt$troop <- "pt"
+df.pred.rbm$troop<- "rbm"
+df.pred.rst$troop<- "rst"
+
+#bind them
+df.pred.all <-bind_rows(df.pred.pt,df.pred.rbm,df.pred.rst)
+
+#melt
+df.pred.melt <- df.pred.all %>% pivot_longer(cols=c(-troop,-yday.s,-ndvi.s,-rowID,-pt.samp.s,-rbm.samp.s,-rst.samp.s,-lci,-uci, -size_PT.s,-size_RBM.s,-size_RST.s,-ite_pt_rbm.s,-ite_pt_rst.s,-ite_rbm_rst.s, -males_PT.s,-males_RBM.s,-males_RST.s))
+
+#plot it 
+p.mod.season<-ggplot(df.pred.melt, aes(x=yday.s, y=value, group=troop, ymin=lci, ymax=uci) ) + geom_ribbon(color=NA,aes(fill=troop),alpha=0.2)+ geom_line(aes(color=troop)) + theme_classic() 
+
+p.mod.season
+```
+
+
+
+
+
+Plot together
+```{r}
+cowplot::plot_grid(p.groom.ndvi + theme_classic(),
+                   p.groom.season+ theme_classic(),
+                   p.mod.ndvi+ theme_classic(),
+                   p.mod.season+ theme_classic(),
+                   nrow=2, labels = c("a)","b)","c)","d)") )
+```
